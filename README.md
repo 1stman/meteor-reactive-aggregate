@@ -1,5 +1,7 @@
 # meteor-reactive-aggregate
 
+ONLY for Meteor 1.26+
+
 Reactively publish aggregations.
 
     meteor add 1stman:reactive-aggregate
