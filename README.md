@@ -2,7 +2,7 @@
 
 Reactively publish aggregations.
 
-    meteor add jcbernack:reactive-aggregate
+    meteor add 1stman:reactive-aggregate
 
 This helper can be used to reactively publish the results of an aggregation.
 
