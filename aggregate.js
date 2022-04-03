@@ -1,63 +1,89 @@
-import { Meteor } from 'meteor/meteor';
-import { Mongo } from 'meteor/mongo';
+import { Meteor } from "meteor/meteor";
+import { Mongo } from "meteor/mongo";
 
-const defaultOptions = ({
-  collection, options
-}) => ({
+const defaultOptions = ({ collection, options }) => ({
   observeSelector: {},
   observeOptions: {},
   delay: 250,
   lookupCollections: {},
   clientCollection: collection._name,
-  ...options
+  ...options,
 });
 
 export const ReactiveAggregate = function (subscription, collection, pipeline = [], options = {}) {
   // fill out default options
-  const {
-    observeSelector, observeOptions, delay, lookupCollections, clientCollection
-  } = defaultOptions({
+  const { observeSelector, observeOptions, delay, lookupCollections, clientCollection } = defaultOptions({
     collection,
-    options
+    options,
   });
 
   // flag to prevent multiple ready messages from being sent
   let ready = false;
-
+  // let myCounter = 0;
+  // let myCounter2 = 0;
   // run, or re-run, the aggregation pipeline
-  const throttledUpdate = _.throttle(Meteor.bindEnvironment(() => {
-    collection.aggregate(safePipeline).each((err, doc) => {
-      if (err) {
-        subscription.error(new Meteor.Error("aggregation-failed", err.message));
-      }
-      // when cursor.each is done, it sends null in place of a document - check for that
-      else if (!doc) {
-        // remove documents not in the result anymore
-        _.each(subscription._ids, (iteration, key) => {
-          if (iteration != subscription._iteration) {
-            delete subscription._ids[key];
-            subscription.removed(clientCollection, key);
+  const throttledUpdate = _.throttle(
+    Meteor.bindEnvironment(() => {
+      // Promise.await(collection.rawCollection().aggregate(pipeline, localOptions.aggregationOptions).toArray());
+      let cursor = Promise.await(collection.aggregate(safePipeline).toArray());
+      // let myCounter = 0;
+      // console.log({ myCounter: cursor.length });
+
+      // myCounter.hasNext((item) => {
+      //   console.log(item);
+      // });
+
+      cursor.forEach((doc, id, arr) => {
+        // myCounter++;
+        // console.log({ myCounter: myCounter.hasNext(() => false) });
+        // console.log({ id, err, doc });
+        // if (err) {
+        //   // console.log({ id, err, doc });
+        //   subscription.error(new Meteor.Error("aggregation-failed", err.message));
+        // }
+        // when cursor.each is done, it sends null in place of a document - check for that
+        if (!doc) {
+          // console.log("HERE NO DOC");
+          // remove documents not in the result anymore
+          _.each(subscription._ids, (iteration, key) => {
+            if (iteration != subscription._iteration) {
+              delete subscription._ids[key];
+              subscription.removed(clientCollection, key);
+            }
+          });
+          subscription._iteration++;
+          // if this is the first run, mark the subscription ready
+          if (!ready) {
+            ready = true;
+            subscription.ready();
           }
-        });
-        subscription._iteration++;
-        // if this is the first run, mark the subscription ready
-        if (!ready) {
-          ready = true;
-          subscription.ready();
         }
-      }
-      // cursor is not done iterating, add and update documents on the client
-      else {
-        if (!subscription._ids[doc._id]) {
-          subscription.added(clientCollection, doc._id, doc);
-        } else {
-          subscription.changed(clientCollection, doc._id, doc);
+        // cursor is not done iterating, add and update documents on the client
+        else {
+          // myCounter2++;
+          if (!subscription._ids[doc._id]) {
+            subscription.added(clientCollection, doc._id, doc);
+          } else {
+            subscription.changed(clientCollection, doc._id, doc);
+          }
+          subscription._ids[doc._id] = subscription._iteration;
         }
-        subscription._ids[doc._id] = subscription._iteration;
-      }
-    });
-  }), delay);
-  const update = () => !initializing ? throttledUpdate() : null;
+        if (id + 1 == cursor.length) subscription.ready();
+        // console.log({ myCounter, myCounter2 });
+      });
+      // console.log({ "subscription._ids": subscription });
+      _.each(subscription._ids, (iteration, key) => {
+        if (iteration != subscription._iteration) {
+          delete subscription._ids[key];
+          subscription.removed(clientCollection, key);
+        }
+      });
+
+      subscription._iteration++;
+    }),
+    delay
+  );
+  const update = () => (!initializing ? throttledUpdate() : null);
 
   // don't update the subscription until __after__ the initial hydrating of our collection
   let initializing = true;
@@ -81,8 +107,8 @@ export const ReactiveAggregate = function (subscription, collection, pipeline = 
         ...stage,
         $lookup: {
           ...stage.$lookup,
-          from: collection._name
-        }
+          from: collection._name,
+        },
       };
     }
     return stage;
@@ -93,14 +119,15 @@ export const ReactiveAggregate = function (subscription, collection, pipeline = 
   initializing = false;
   // send an initial result set to the client
   update();
+  // subscription.ready();
   // stop observing the cursor when the client unsubscribes
   subscription.onStop(() => observerHandles.map((handle) => handle.stop()));
 
   /**
-	 * Create observer
-	 * @param {Mongo.Collection|*} collection
-	 * @returns {any|*|Meteor.LiveQueryHandle} Handle
-	 */
+   * Create observer
+   * @param {Mongo.Collection|*} collection
+   * @returns {any|*|Meteor.LiveQueryHandle} Handle
+   */
   function createObserver(collection, queryOptions = {}) {
     const { observeSelector, observeOptions } = queryOptions;
     const selector = observeSelector || {};
@@ -112,7 +139,7 @@ export const ReactiveAggregate = function (subscription, collection, pipeline = 
       removed: update,
       error: (err) => {
         throw err;
-      }
+      },
     });
   }
 };
